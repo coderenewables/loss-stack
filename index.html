@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- LossStack — energy loss stack from gross to the meter.
+     Copyright 2026 Nithish Seenivasagam (coderenewables.com)
+     SPDX-License-Identifier: Apache-2.0 -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Build a wind or solar plant's loss stack from gross energy to the meter, with WattOdds' loss items and uncertainty, and open it in WattOdds.">
+<meta property="og:title" content="LossStack · CodeRenewables">
+<meta property="og:description" content="Build a wind or solar plant's loss stack from gross energy to the meter, with WattOdds' loss items and uncertainty, and open it in WattOdds.">
+<meta property="og:url" content="https://lossstack.coderenewables.com/">
+<link rel="canonical" href="https://lossstack.coderenewables.com/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='6' y='8' width='10' height='48' rx='2.5' fill='%236a4bd8'/><rect x='19' y='8' width='9' height='9' rx='2.5' fill='%236a4bd8' fill-opacity='0.4'/><rect x='31' y='17' width='9' height='7' rx='2.5' fill='%236a4bd8' fill-opacity='0.4'/><rect x='43' y='24' width='9' height='5' rx='2' fill='%236a4bd8' fill-opacity='0.4'/><rect x='55' y='29' width='6' height='27' rx='2' fill='%236a4bd8'/><path d='M3 59 H61' stroke='%2310212a' stroke-width='3.4' stroke-linecap='round'/></svg>">
+<title>LossStack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Atkinson+Hyperlegible+Next:wght@200..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: WattOdds' system, as in WindNudge and SolarNudge. Sticky top bar with the tool's mark,
+   the question as the headline, inputs in a left column and results on the right; one column on
+   phones. Tokens are WattOdds' own; LossStack swaps in its accent pair and adds loss colours. */
+:root {
+  --paper: #f2f5f5;
+  --surface: #ffffff;
+  --sunk: #e8edee;
+  --ink: #10212a;
+  --ink-2: #44565f;
+  --ink-3: #66777f;
+  --line: #d5dde0;
+  --line-2: #b9c5ca;
+  --warn-ink: #8a5a00;
+  --warn-wash: #fff4d6;
+  --crit: #d03b3b;
+  --f-display: "Archivo", "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 10px;
+  --top-h: 56px;
+  --accent: #6a4bd8; --accent-ink: #5135b8; --accent-wash: #ece8fc; --on-accent: #ffffff;
+  --loss: #d9480f; --gain: #1f8a5c; --store: #8a6d00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0b1418; --surface: #111d22; --sunk: #0d181c; --ink: #e3ecee; --ink-2: #a9b9be; --ink-3: #8193a0;
+    --line: #22333a; --line-2: #31464e; --warn-ink: #f2c45c; --warn-wash: #2c2410; --crit: #e66767;
+    --accent: #8b74ee; --accent-ink: #b5a6f6; --accent-wash: #221b3d; --on-accent: #0b1418;
+    --loss: #ff6b35; --gain: #4cc38a; --store: #e0b93a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0b1418; --surface: #111d22; --sunk: #0d181c; --ink: #e3ecee; --ink-2: #a9b9be; --ink-3: #8193a0;
+  --line: #22333a; --line-2: #31464e; --warn-ink: #f2c45c; --warn-wash: #2c2410; --crit: #e66767;
+  --accent: #8b74ee; --accent-ink: #b5a6f6; --accent-wash: #221b3d; --on-accent: #0b1418;
+  --loss: #ff6b35; --gain: #4cc38a; --store: #e0b93a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; -webkit-text-size-adjust: 100%; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--surface); }
+h1, h2, h3 { font-family: var(--f-display); font-stretch: 112%; text-wrap: balance; margin: 0; line-height: 1.15; }
+p { margin: 0; }
+a { color: var(--accent-ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------- top bar ---------- */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.top-in { max-width: 1180px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: var(--top-h); }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink); }
+.brand svg { flex: none; }
+.brand-name { font-family: var(--f-display); font-stretch: 112%; font-weight: 800; font-size: 1.12rem; line-height: 1.1; letter-spacing: -0.01em; white-space: nowrap; }
+.brand-name .hl { color: var(--accent-ink); }
+.brand-sub { font-family: var(--f-mono); font-size: 0.7rem; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.actions { display: flex; gap: 6px; flex: none; }
+@media (max-width: 560px) { .actions .wide { display: none; } .brand-sub { display: none; } }
+
+/* ---------- page ---------- */
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 26px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.intro { display: grid; gap: 8px; margin-bottom: 22px; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.74rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+h1 { font-weight: 800; font-stretch: 116%; font-size: clamp(1.6rem, 1.1rem + 2vw, 2.3rem); line-height: 1.05; letter-spacing: -0.02em; max-width: 26ch; }
+.lede { color: var(--ink-2); max-width: 70ch; text-wrap: pretty; }
+.grid { display: grid; grid-template-columns: 350px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 880px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+.panel h2 { font-family: var(--f-display); font-stretch: 100%; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 12px; color: var(--ink-2); }
+.inputs { display: flex; flex-direction: column; gap: 18px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.field { display: grid; gap: 4px; min-width: 0; align-content: start; }
+.field.full { grid-column: 1 / -1; }
+label, .lab { font-size: 0.82rem; color: var(--ink-2); font-weight: 600; line-height: 1.3; }
+.inp { display: flex; align-items: stretch; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); overflow: hidden; min-width: 0; }
+.inp:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.inp input, .inp select { flex: 1; width: 100%; min-width: 0; border: 0; background: transparent; padding: 7px 9px; font: inherit; font-family: var(--f-mono); font-size: 0.9rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.inp select { font-family: var(--f-body); font-size: 0.88rem; cursor: pointer; }
+.inp input:focus, .inp select:focus { outline: none; }
+.inp .unit { display: grid; place-items: center; padding: 0 8px; font-size: 0.74rem; color: var(--ink-3); background: var(--sunk); border-left: 1px solid var(--line); font-family: var(--f-mono); white-space: nowrap; }
+.inp.bad { border-color: var(--crit); }
+.sep { height: 1px; background: var(--line); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 0.88rem; color: var(--ink); font-weight: 500; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.chip { display: inline-flex; align-items: center; font-family: var(--f-body); font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--sunk); color: var(--ink-2); white-space: nowrap; }
+.chip.warn { background: var(--warn-wash); color: var(--warn-ink); }
+.upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 12px; font: inherit; font-size: 0.86rem; font-weight: 600; cursor: pointer; white-space: nowrap; text-decoration: none; }
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { filter: brightness(1.06); }
+.filebtn { position: relative; }
+.filebtn input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.linkbtn { font: inherit; font-size: 0.86rem; font-weight: 600; color: var(--ink-2); background: none; border: 0; padding: 7px 4px; cursor: pointer; text-decoration: underline; }
+.note { font-size: 0.8rem; color: var(--ink-3); }
+.note.ok { color: var(--accent-ink); } .note.err { color: var(--crit); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--sunk); border-radius: 8px; padding: 3px; gap: 2px; margin-bottom: 12px; }
+.seg label { position: relative; display: block; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span { display: block; text-align: center; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); padding: 6px 4px; border-radius: 6px; }
+.seg input:checked + span { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); }
+.seg.small { margin: 0; display: inline-grid; grid-auto-flow: column; grid-template-columns: none; }
+.seg.small span { padding: 3px 10px; font-size: 0.76rem; }
+.computed { font-family: var(--f-mono); font-size: 0.8rem; color: var(--ink-2); }
+.results { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+@media (max-width: 620px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kpi .k { font-size: 0.78rem; color: var(--ink-2); font-weight: 600; }
+.kpi .v { font-family: var(--f-display); font-stretch: 105%; font-weight: 800; font-size: 1.85rem; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi .v small { font-family: var(--f-body); font-size: 0.82rem; font-weight: 600; color: var(--ink-2); margin-left: 4px; letter-spacing: 0; }
+.kpi .s { font-family: var(--f-mono); font-size: 0.74rem; color: var(--ink-2); }
+.kpi.hero { background: var(--accent-wash); }
+.kpi.hero .v { color: var(--accent-ink); }
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; margin-bottom: 6px; }
+.chart-head h3 { font-size: 1.02rem; font-weight: 700; }
+.chart-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.76rem; color: var(--ink-2); margin: 2px 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend i.wh { width: 12px; height: 2px; border-radius: 0; background: var(--ink); position: relative; }
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; }
+svg text { font-family: var(--f-mono); font-size: 11px; fill: var(--ink-3); }
+svg .lbl { fill: var(--ink); font-family: var(--f-body); font-size: 12.5px; font-weight: 600; }
+svg .lbl.sub { font-weight: 500; fill: var(--ink-2); }
+svg .val { fill: var(--ink); font-size: 11px; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 1040px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.export { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.export h3 { font-size: 1.02rem; font-weight: 700; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+textarea { width: 100%; min-height: 120px; font: 0.76rem var(--f-mono); color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px; margin-top: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.74rem; color: var(--ink-2); font-weight: 700; white-space: nowrap; }
+td.n, th.n { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.grp td { background: var(--sunk); font-weight: 700; font-size: 0.8rem; }
+tr.tot td { font-weight: 700; border-top: 2px solid var(--line-2); }
+tr.off td { color: var(--ink-3); }
+.tbl { overflow-x: auto; }
+.odds td.n { font-size: 0.86rem; }
+.odds tr.p90 td { font-weight: 700; }
+.callout { background: var(--warn-wash); color: var(--warn-ink); border-radius: 8px; padding: 9px 12px; font-size: 0.82rem; }
+.method { color: var(--ink-2); font-size: 0.84rem; max-width: 82ch; display: grid; gap: 6px; }
+.method code { font-family: var(--f-mono); font-size: 0.76rem; color: var(--ink); }
+
+/* ---------- loss register ---------- */
+.register { margin-top: 22px; display: grid; gap: 14px; }
+.register-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 8px 16px; }
+.register-head h2 { font-size: 1.35rem; font-weight: 800; }
+.group { display: grid; gap: 8px; }
+.group-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--line-2); padding-bottom: 4px; }
+.group-head h3 { font-size: 1rem; font-weight: 700; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.card.off { opacity: 0.62; }
+.card-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+.card-head h4 { margin: 0; font-size: 0.92rem; font-weight: 700; line-height: 1.3; }
+.card-head code { display: block; font-family: var(--f-mono); font-size: 0.68rem; color: var(--ink-3); margin-top: 2px; overflow-wrap: anywhere; }
+.card .val { font-family: var(--f-mono); font-size: 0.86rem; font-weight: 600; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.card .val small { display: block; font-size: 0.7rem; color: var(--ink-3); font-weight: 500; }
+.card .fields { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
+details.about summary { font-size: 0.78rem; color: var(--ink-2); cursor: pointer; font-weight: 600; }
+details.about div { font-size: 0.8rem; color: var(--ink-2); display: grid; gap: 4px; margin-top: 6px; }
+details.about b { color: var(--ink); }
+footer { margin-top: 28px; font-size: 0.8rem; color: var(--ink-3); }
+.print-only { display: none; }
+
+@media print {
+  :root, :root[data-theme="dark"] { --paper: #fff; --surface: #fff; --sunk: #eef1f2; --ink: #10212a; --ink-2: #33444c; --ink-3: #55666e; --line: #c9d2d6; --line-2: #a9b6bb;
+    --accent: #6a4bd8; --accent-ink: #5135b8; --accent-wash: #ece8fc; --loss: #d9480f; --gain: #1f8a5c; --store: #8a6d00; color-scheme: light; }
+  @page { margin: 14mm; }
+  body { font-size: 11pt; }
+  .top, .inputs, .no-print, .register, footer .src { display: none !important; }
+  .print-only { display: block; }
+  .wrap { padding: 0; max-width: none; }
+  .grid { grid-template-columns: 1fr; }
+  .panel, .kpis { break-inside: avoid; }
+  .two { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true"><rect x="6" y="8" width="10" height="48" rx="2.5" fill="var(--accent)"/><rect x="19" y="8" width="9" height="9" rx="2.5" fill="var(--accent)" fill-opacity="0.4"/><rect x="31" y="17" width="9" height="7" rx="2.5" fill="var(--accent)" fill-opacity="0.4"/><rect x="43" y="24" width="9" height="5" rx="2" fill="var(--accent)" fill-opacity="0.4"/><rect x="55" y="29" width="6" height="27" rx="2" fill="var(--accent)"/><path d="M3 59 H61" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></svg>
+      <div>
+        <div class="brand-name">Loss<span class="hl">Stack</span></div>
+        <div class="brand-sub">plant losses · gross to meter</div>
+      </div>
+    </div>
+    <nav class="actions" aria-label="Links">
+      <a class="btn wide" href="https://wattodds.coderenewables.com" target="_blank" rel="noopener">WattOdds</a>
+      <a class="btn" href="https://github.com/coderenewables/loss-stack" target="_blank" rel="noopener">Source</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="intro">
+    <div class="eyebrow">Wind · Solar · losses</div>
+    <h1>Where does your energy go between gross and the meter?</h1>
+    <p class="lede">Build the plant's loss stack with WattOdds' loss items. Each loss takes its share of what is left, carries its own uncertainty, and the whole stack opens in WattOdds for the full P50 to P99.</p>
+  </div>
+
+  <div class="grid">
+    <aside class="panel inputs" aria-label="Inputs">
+      <section>
+        <h2>Plant</h2>
+        <div class="seg" role="radiogroup" aria-label="Technology">
+          <label><input type="radio" name="tech" value="wind" id="techWind"><span>Wind</span></label>
+          <label><input type="radio" name="tech" value="solar" id="techSolar"><span>Solar PV</span></label>
+        </div>
+        <div id="windBlock">
+          <div class="fields">
+            <div class="field"><label for="nTurbines">Turbines</label><div class="inp"><input id="nTurbines" data-k="wind.nTurbines" type="number" step="1" min="1" max="2000"></div></div>
+            <div class="field"><label for="ratedMW">Rated power</label><div class="inp"><input id="ratedMW" data-k="wind.ratedMW" type="number" step="0.1" min="0.1" max="30"><span class="unit">MW</span></div></div>
+            <div class="field full"><label for="windGross">Gross energy</label><div class="inp"><input id="windGross" data-k="wind.grossGWh" type="number" step="1" min="0"><span class="unit">GWh/yr</span></div></div>
+          </div>
+          <p class="note" style="margin-top:8px">Free-stream energy of all turbines before wakes and every other loss, for example from your wake model or WindNudge's gross AEP.</p>
+        </div>
+        <div id="solarBlock" hidden>
+          <div class="fields">
+            <div class="field"><label for="dcMWp">DC capacity</label><div class="inp"><input id="dcMWp" data-k="solar.dcMWp" type="number" step="1" min="0.01"><span class="unit">MWp</span></div></div>
+            <div class="field"><label for="acMW">AC capacity</label><div class="inp"><input id="acMW" data-k="solar.acMW" type="number" step="1" min="0.01"><span class="unit">MWac</span></div></div>
+            <div class="field"><label for="mount">Mounting</label><div class="inp"><select id="mount" data-k="solar.mount"><option value="fixed">Fixed tilt</option><option value="tracker">Single-axis tracker</option></select></div></div>
+            <div class="field" style="align-content:end"><label class="check" style="min-height:36px"><input type="checkbox" id="bifacial" data-k="solar.bifacial">Bifacial modules</label></div>
+          </div>
+          <div class="lab" style="margin:12px 0 6px">Gross energy</div>
+          <div class="seg" role="radiogroup" aria-label="How gross energy is set">
+            <label><input type="radio" name="grossMode" value="irradiation" id="gmIrr"><span>From irradiation</span></label>
+            <label><input type="radio" name="grossMode" value="entered" id="gmEnt"><span>Enter gross</span></label>
+          </div>
+          <div class="fields" id="irrBlock">
+            <div class="field"><label for="ghi">GHI</label><div class="inp"><input id="ghi" data-k="solar.ghi" type="number" step="10" min="1"><span class="unit">kWh/m²</span></div></div>
+            <div class="field"><label for="poaRatio">POA / GHI</label><div class="inp"><input id="poaRatio" data-k="solar.poaRatio" type="number" step="0.01" min="0.5" max="1.6"></div></div>
+          </div>
+          <div class="fields" id="entBlock" hidden>
+            <div class="field full"><label for="solarGross">Gross energy</label><div class="inp"><input id="solarGross" data-k="solar.grossGWh" type="number" step="1" min="0"><span class="unit">GWh/yr</span></div></div>
+          </div>
+          <p class="note" id="solarGrossNote" style="margin-top:8px"></p>
+        </div>
+      </section>
+      <div class="sep"></div>
+      <section>
+        <h2>Storage</h2>
+        <label class="check"><input type="checkbox" id="storeOn" data-k="storage.enabled">Route part of the energy through a battery</label>
+        <div class="fields" id="storeBlock" style="margin-top:10px" hidden>
+          <div class="field full"><label for="share">Share of energy stored and released</label><div class="inp"><input id="share" data-k="storage.share" type="number" step="1" min="0" max="100"><span class="unit">%</span></div></div>
+        </div>
+        <p class="note" style="margin-top:8px">Only the stored share pays the round-trip and auxiliary losses. Set both under Storage in the loss register below.</p>
+      </section>
+      <div class="sep"></div>
+      <section>
+        <h2>Period</h2>
+        <div class="fields">
+          <div class="field full"><label for="years">Average over</label><div class="inp"><input id="years" data-k="years" type="number" step="1" min="1" max="40"><span class="unit">years</span></div></div>
+        </div>
+        <p class="note" style="margin-top:8px">Module degradation grows each year, and year-to-year swings in availability and curtailment average out over longer periods.</p>
+      </section>
+      <div class="sep"></div>
+      <section>
+        <h2>Load</h2>
+        <div class="upload">
+          <label class="btn filebtn"><input id="file" type="file" accept=".json,application/json">Load a JSON file</label>
+          <button class="linkbtn" id="reset" type="button">Reset to WattOdds defaults</button>
+        </div>
+        <details style="margin-top:8px"><summary class="note" style="cursor:pointer">Paste JSON instead</summary>
+          <textarea id="paste" aria-label="Paste JSON" placeholder="Paste a WindNudge or SolarNudge export, a WattOdds project or a LossStack file"></textarea>
+          <button class="btn" id="pasteGo" type="button" style="margin-top:6px">Load pasted JSON</button>
+        </details>
+        <p class="note" id="loadNote" style="margin-top:8px">Reads LossStack files, WattOdds projects, and WindNudge or SolarNudge JSON. Your stack is kept in this browser.</p>
+      </section>
+    </aside>
+
+    <main class="results">
+      <div class="print-only panel" id="printSummary"></div>
+      <div class="kpis">
+        <div class="kpi hero"><span class="k">Net at the meter, year 1</span><span class="v" id="kNet">–</span><span class="s" id="kGross">–</span></div>
+        <div class="kpi"><span class="k">Total loss</span><span class="v" id="kLoss">–</span><span class="s" id="kLossE">–</span></div>
+        <div class="kpi"><span class="k">Capacity factor</span><span class="v" id="kCf">–</span><span class="s" id="kCfG">–</span></div>
+        <div class="kpi"><span class="k">Loss uncertainty, 1 yr</span><span class="v" id="kSig">–</span><span class="s" id="kSigN">–</span></div>
+      </div>
+
+      <section class="panel">
+        <div class="chart-head">
+          <h3>From gross to the meter</h3>
+          <div class="chart-tools no-print">
+            <div class="seg small" role="radiogroup" aria-label="Detail">
+              <label><input type="radio" name="by" value="group" checked><span>By group</span></label>
+              <label><input type="radio" name="by" value="item"><span>By item</span></label>
+            </div>
+            <div class="seg small" role="radiogroup" aria-label="Period shown">
+              <label><input type="radio" name="when" value="1" checked><span>Year 1</span></label>
+              <label><input type="radio" name="when" value="N"><span id="whenN">10-yr avg</span></label>
+            </div>
+          </div>
+        </div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Gross and net</span><span><i style="background:var(--loss)"></i>Loss</span><span id="lgGain" hidden><i style="background:var(--gain)"></i>Gain</span><span id="lgStore" hidden><i style="background:var(--store)"></i>Storage</span><span><i class="wh"></i>±1σ of the loss</span></div>
+        <p class="note" style="margin:0 0 8px" id="bridgeNote">Each loss is taken from what is left after the ones before it. The axis starts above zero so small losses stay visible.</p>
+        <div class="chart" id="bridge"></div>
+      </section>
+
+      <div class="two">
+        <section class="panel">
+          <div class="chart-head"><h3>Which losses carry the uncertainty</h3></div>
+          <p class="note" style="margin:0 0 8px">Share of the year-1 loss variance. Reduce the top items first.</p>
+          <div class="chart" id="contrib"></div>
+        </section>
+        <section class="panel">
+          <div class="chart-head"><h3>Losses alone</h3></div>
+          <p class="note" style="margin:0 0 8px">Net energy exceeded with each probability if the gross energy were known exactly.</p>
+          <div class="tbl"><table class="odds" id="odds"></table></div>
+          <p class="callout" style="margin-top:10px">These are not bankable P-values. Wind speed or irradiance uncertainty is usually several times larger than the loss uncertainty. Open the stack in WattOdds to add it.</p>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="chart-head"><h3>Loss table</h3><button class="btn no-print" id="csv" type="button">Download CSV</button></div>
+        <div class="tbl"><table id="table"></table></div>
+      </section>
+
+      <section class="panel no-print">
+        <div class="export">
+          <div>
+            <h3>Send to WattOdds</h3>
+            <p class="note" style="margin-top:2px">Download a project file, then use Import project file in WattOdds. The loss items keep their values and how they were set.</p>
+          </div>
+          <div class="btns">
+            <button class="btn primary" id="wo" type="button">Download WattOdds project</button>
+            <button class="btn" id="copy" type="button">Copy JSON</button>
+            <button class="btn" id="show" type="button">Show</button>
+            <button class="btn" id="print" type="button">Print</button>
+          </div>
+        </div>
+        <p class="note" id="woNote" style="margin-top:8px"></p>
+        <textarea id="json" readonly hidden aria-label="WattOdds project JSON"></textarea>
+      </section>
+
+      <section class="method">
+        <p><strong style="color:var(--ink)">Method.</strong> Net energy is <code>gross × Π(1 − Lᵢ)</code>: each loss is a share of the energy left after the ones before it, so the order changes each step's GWh but not the total. Loss uncertainty follows WattOdds: each item adds <code>(sᵢ/ηᵢ)²</code> to the variance, with <code>ηᵢ = 1 − Lᵢ</code>, items are independent, and year-to-year variability adds <code>(iavᵢ/ηᵢ)²/N</code> over an N-year average. Module degradation is a yearly rate: over N years the average loss is <code>rate × (N − 1)/2</code>.</p>
+        <p>Storage is LossStack's own step. Only the stored share <code>f</code> pays round-trip and auxiliary losses: <code>L = f × (100 − RTE)</code> and <code>L = f × aux</code>, with σ scaled by <code>f</code>. WattOdds simulates storage hour by hour, so the project file passes on generation before storage and the battery values as WattOdds' battery items. Item names, options, defaults and sources come from <a href="https://github.com/coderenewables/renewables-uncertainty" target="_blank" rel="noopener">WattOdds</a> (<span id="woVer"></span>). A screening tool: it does not replace an independent energy yield assessment.</p>
+      </section>
+    </main>
+  </div>
+
+  <section class="register no-print" aria-labelledby="regTitle">
+    <div class="register-head">
+      <div>
+        <h2 id="regTitle">Loss register</h2>
+        <p class="note">Describe the site, keep WattOdds' generic value, enter your own, or exclude an item. Values are percent of energy; σ is one standard deviation in percentage points.</p>
+      </div>
+      <button class="linkbtn" id="expand" type="button">Open all explanations</button>
+    </div>
+    <div id="register"></div>
+  </section>
+
+  <footer>Part of the <a href="https://coderenewables.com" target="_blank" rel="noopener">CodeRenewables</a> suite, alongside <a href="https://wattodds.coderenewables.com" target="_blank" rel="noopener">WattOdds</a>, <a href="https://windnudge.coderenewables.com" target="_blank" rel="noopener">WindNudge</a> and <a href="https://solarnudge.coderenewables.com" target="_blank" rel="noopener">SolarNudge</a>. <span class="src">Apache-2.0 licensed, source on <a href="https://github.com/coderenewables/loss-stack" target="_blank" rel="noopener">GitHub</a>.</span> Nothing you enter leaves your browser.</footer>
+</div>
+
+<script src="wattodds-items.js"></script>
+<script src="engine.js"></script>
+<script>
+(function(){
+'use strict';
+const W=WATTODDS_ITEMS, LS=LossStack, D=LS.defById(W);
+const $=id=>document.getElementById(id);
+const KEY='lossstack/1';
+const fmt=(n,d=0)=>(+n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const gwh=n=>fmt(n,Math.abs(n)<10?2:1);
+const minus=n=>(n<0?"−":"")+fmt(Math.abs(n),2);
+
+/* ---------- state ---------- */
+let state=load();
+let view={by:"group",when:"1"};
+let last=null, lastProj=null;
+function load(){
+  try{const s=localStorage.getItem(KEY); if(s) return LS.sanitize(W,JSON.parse(s));}catch(e){/* storage unavailable */}
+  return LS.defaultState(W,"wind");
+}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){/* storage unavailable */}}
+const get=(o,k)=>k.split(".").reduce((a,p)=>a&&a[p],o);
+const put=(o,k,v)=>{const ps=k.split("."),l=ps.pop();ps.reduce((a,p)=>a[p],o)[l]=v;};
+
+/* ---------- plant inputs ---------- */
+function syncInputs(){
+  $("techWind").checked=state.tech==="wind"; $("techSolar").checked=state.tech==="solar";
+  $("windBlock").hidden=state.tech!=="wind"; $("solarBlock").hidden=state.tech!=="solar";
+  document.querySelectorAll(".inputs [data-k]").forEach(el=>{
+    const v=get(state,el.dataset.k);
+    if(el.type==="checkbox") el.checked=!!v; else if(document.activeElement!==el) el.value=v;
+    el.closest(".inp")&&el.closest(".inp").classList.remove("bad");
+  });
+  $("gmIrr").checked=state.solar.grossMode!=="entered"; $("gmEnt").checked=state.solar.grossMode==="entered";
+  $("irrBlock").hidden=state.solar.grossMode==="entered"; $("entBlock").hidden=state.solar.grossMode!=="entered";
+  $("storeBlock").hidden=!state.storage.enabled;
+  $("whenN").textContent=state.years+"-yr avg";
+}
+const LIM={"wind.nTurbines":[1,2000],"wind.ratedMW":[0.1,30],"wind.grossGWh":[0,1e6],"solar.dcMWp":[0.01,1e5],"solar.acMW":[0.01,1e5],"solar.ghi":[1,3500],"solar.poaRatio":[0.5,1.6],"solar.grossGWh":[0,1e6],"storage.share":[0,100],"years":[1,40]};
+document.querySelector(".inputs").addEventListener("input",e=>{
+  const el=e.target, k=el.dataset&&el.dataset.k; if(!k) return;
+  if(el.type==="checkbox") put(state,k,el.checked);
+  else if(el.tagName==="SELECT") put(state,k,el.value);
+  else{
+    const n=parseFloat(el.value), lim=LIM[k], ok=Number.isFinite(n)&&(!lim||(n>=lim[0]&&n<=lim[1]));
+    el.closest(".inp").classList.toggle("bad",!ok);
+    if(!ok) return; // keep the last valid value while the box is empty or out of range
+    put(state,k,k==="wind.nTurbines"||k==="years"?Math.round(n):n);
+  }
+  if(k==="solar.bifacial"||k==="storage.enabled"){syncInputs();renderRegister();}
+  if(k==="solar.acMW"||k==="solar.dcMWp") refreshCardValues();
+  if(k==="years") $("whenN").textContent=state.years+"-yr avg";
+  update();
+});
+document.querySelectorAll('input[name=tech]').forEach(r=>r.addEventListener("change",()=>{state.tech=r.value;syncInputs();renderRegister();update();}));
+document.querySelectorAll('input[name=grossMode]').forEach(r=>r.addEventListener("change",()=>{state.solar.grossMode=r.value;syncInputs();update();}));
+document.querySelectorAll('input[name=by]').forEach(r=>r.addEventListener("change",()=>{view.by=r.value;drawBridge();}));
+document.querySelectorAll('input[name=when]').forEach(r=>r.addEventListener("change",()=>{view.when=r.value;drawBridge();}));
+
+/* ---------- loss register ---------- */
+function groupsFor(){
+  return LS.ORDER[state.tech].filter(([g])=>g!=="storage"||state.storage.enabled);
+}
+function defsIn(gid){
+  if(gid==="storage") return W.storage;
+  const ctx={bifacial:state.solar.bifacial};
+  return LS.itemsFor(W,state.tech).filter(d=>(d.cat===gid)&&(!d.when||(d.when==="bifacial"&&ctx.bifacial)));
+}
+function valueText(def){
+  const ctx={tech:state.tech,dcac:state.solar.dcMWp/Math.max(0.01,state.solar.acMW),bifacial:state.solar.bifacial};
+  const v=LS.evalItem(def,state.items[def.id],ctx);
+  if(v.mode==="none") return {v:"–",d:"excluded"};
+  if(def.domain==="bess"){
+    const u=def.id==="bess_rte"?"% RTE":"% of throughput";
+    return {v:fmt(v.L,1)+" ± "+fmt(v.s,1),d:u};
+  }
+  const unit=def.time==="horizon"?"%/yr":"%";
+  const L=v.L<0?"+"+fmt(-v.L,1)+" gain":fmt(v.L,2);
+  return {v:L+" ± "+fmt(v.s,2),d:unit+(v.iav>0?" · iav "+fmt(v.iav,1):"")};
+}
+function cardHtml(def){
+  const st=state.items[def.id], mode=st.mode, vt=valueText(def);
+  const opts=[];
+  if(def.desc) def.desc.options.forEach((o,i)=>opts.push(`<option value="desc:${i}" ${mode==="desc"&&+st.choice===i?"selected":""}>${esc(o.label)}</option>`));
+  const gv=def.def&&!def.def.fn?def.def:null;
+  opts.push(`<option value="default" ${mode==="default"||(mode==="desc"&&!def.desc)?"selected":""}>Generic value${gv?` (${fmt(gv.L,def.domain==="bess"?0:2)} ± ${fmt(gv.s,2)})`:""}</option>`);
+  opts.push(`<option value="entered" ${mode==="entered"?"selected":""}>Your own value</option>`);
+  if(def.domain!=="bess") opts.push(`<option value="none" ${mode==="none"?"selected":""}>Exclude</option>`);
+  let fields="";
+  if(mode==="entered"){
+    const bl=def.labels||{}, bu=def.bunit||{};
+    const f=(key,label,unit,step)=>`<div class="field"><label for="f-${def.id}-${key}">${esc(label)}</label><div class="inp"><input id="f-${def.id}-${key}" data-item="${def.id}" data-f="${key}" type="number" step="${step}" value="${st.entered[key]}"><span class="unit">${esc(unit)}</span></div></div>`;
+    if(def.domain==="bess") fields=f("L",bl.L||"Value",bu.L||"%",0.1)+f("s",bl.s||"σ",bu.s||"pts",0.1);
+    else{
+      const hz=def.time==="horizon";
+      fields=f("L",hz?"Rate":def.id==="bifacial"?"Loss (− = gain)":"Loss",hz?"%/yr":"%",hz?0.05:0.1)+f("s","σ",hz?"%/yr":"pts",hz?0.05:0.1)+(def.hasIav?f("iav","Year to year","pts",0.1):"");
+    }
+    fields=`<div class="fields">${fields}</div>`;
+  }
+  const info=def.info||{}, src=(def.src||[]).map(k=>W.sources[k]).filter(Boolean);
+  const about=`<details class="about"><summary>What it is and how to reduce it</summary><div>
+    ${info.what?`<p><b>What it is.</b> ${esc(info.what)}</p>`:""}
+    ${info.drives?`<p><b>What drives it.</b> ${esc(info.drives)}</p>`:""}
+    ${info.reduce?`<p><b>How to reduce it.</b> ${esc(info.reduce)}</p>`:""}
+    ${info.values?`<p><b>Where the values come from.</b> ${esc(info.values)}</p>`:""}
+    ${src.length?`<p><b>Sources.</b> ${src.map(s=>s.u?`<a href="${esc(s.u)}" target="_blank" rel="noopener">${esc(s.t)}</a>`:esc(s.t)).join("; ")}</p>`:""}
+  </div></details>`;
+  return `<article class="card${mode==="none"?" off":""}" id="card-${def.id}">
+    <div class="card-head"><div><h4>${esc(def.name)}</h4><code>${esc(def.cat)} / ${esc(def.sub)}</code></div><div class="val" id="val-${def.id}">${vt.v}<small>${esc(vt.d)}</small></div></div>
+    <div class="inp"><select data-mode="${def.id}" aria-label="How ${esc(def.name)} is set">${opts.join("")}</select></div>
+    ${fields}${about}</article>`;
+}
+function renderRegister(){
+  const open=new Set([...document.querySelectorAll("#register details[open]")].map(d=>d.closest(".card").id));
+  $("register").innerHTML=groupsFor().map(([gid,gname])=>{
+    const defs=defsIn(gid); if(!defs.length) return "";
+    return `<div class="group" id="grp-${gid}"><div class="group-head"><h3>${esc(gname)}</h3><span class="computed" id="gsum-${gid}"></span></div><div class="cards">${defs.map(cardHtml).join("")}</div></div>`;
+  }).join("");
+  open.forEach(id=>{const c=$(id);if(c)c.querySelector("details").open=true;});
+}
+function refreshCardValues(){
+  groupsFor().forEach(([gid])=>defsIn(gid).forEach(def=>{const el=$("val-"+def.id); if(el){const vt=valueText(def);el.innerHTML=vt.v+"<small>"+esc(vt.d)+"</small>";}}));
+}
+$("register").addEventListener("change",e=>{
+  const sel=e.target.closest("select[data-mode]"); if(!sel) return;
+  const id=sel.dataset.mode, st=state.items[id], v=sel.value;
+  if(v.startsWith("desc:")){st.mode="desc";st.choice=+v.slice(5);}
+  else{
+    if(v==="entered"&&st.mode!=="entered"){ // start from the value it had, so typing adjusts rather than replaces
+      const ctx={tech:state.tech,dcac:state.solar.dcMWp/Math.max(0.01,state.solar.acMW),bifacial:state.solar.bifacial};
+      const cur=LS.evalItem(D[id],st,ctx); st.entered={L:+cur.L.toFixed(3),s:+cur.s.toFixed(3),iav:+cur.iav.toFixed(3)};
+    }
+    st.mode=v;
+  }
+  const card=$("card-"+id), wasOpen=card.querySelector("details").open;
+  card.outerHTML=cardHtml(D[id]); if(wasOpen) $("card-"+id).querySelector("details").open=true;
+  update();
+});
+$("register").addEventListener("input",e=>{
+  const el=e.target; if(!el.dataset||!el.dataset.item) return;
+  const id=el.dataset.item, k=el.dataset.f, n=parseFloat(el.value), def=D[id];
+  const lim=def.domain==="bess"?(k==="L"?(id==="bess_rte"?[40,100]:[0,30]):[0,30]):(k==="L"?[-30,95]:[0,k==="s"?50:30]);
+  const ok=Number.isFinite(n)&&n>=lim[0]&&n<=lim[1];
+  el.closest(".inp").classList.toggle("bad",!ok);
+  if(!ok) return;
+  state.items[id].entered[k]=n;
+  const vt=valueText(def); $("val-"+id).innerHTML=vt.v+"<small>"+esc(vt.d)+"</small>";
+  update(true);
+});
+$("expand").addEventListener("click",()=>{const ds=[...document.querySelectorAll("#register details")];const open=!ds.every(d=>d.open);ds.forEach(d=>d.open=open);$("expand").textContent=open?"Close all explanations":"Open all explanations";});
+
+/* ---------- results ---------- */
+function update(){
+  save();
+  const r=LS.compute(W,state); last=r;
+  $("kNet").innerHTML=gwh(r.net1)+"<small>GWh/yr</small>";
+  $("kGross").textContent="Gross "+gwh(r.gross)+" GWh/yr";
+  $("kLoss").innerHTML=fmt(r.lossPct1,1)+"<small>%</small>";
+  $("kLossE").textContent=gwh(r.gross-r.net1)+" GWh/yr lost";
+  $("kCf").innerHTML=fmt(r.cf1*100,1)+"<small>%</small>";
+  $("kCfG").textContent="gross "+fmt(r.grossCf*100,1)+"% on "+fmt(r.capacityMW,1)+(state.tech==="solar"?" MWac":" MW");
+  $("kSig").innerHTML="±"+fmt(r.sigma1,2)+"<small>%</small>";
+  $("kSigN").textContent="±"+fmt(r.sigmaN,2)+"% over "+r.N+" yr";
+  if(state.tech==="solar"){
+    const g=state.solar.dcMWp*state.solar.ghi*state.solar.poaRatio/1000;
+    $("solarGrossNote").textContent=state.solar.grossMode==="entered"
+      ?"DC capacity × plane-of-array irradiation, before horizon, shading and every other loss. From irradiation, your inputs would give "+gwh(g)+" GWh/yr."
+      :"Gross = "+fmt(state.solar.dcMWp,1)+" MWp × "+fmt(state.solar.ghi*state.solar.poaRatio,0)+" kWh/m² on the array = "+gwh(g)+" GWh/yr, as WattOdds computes it. DC/AC "+fmt(r.dcac,2)+".";
+  }
+  groupsFor().forEach(([gid])=>{const g=r.groups.find(x=>x.id===gid), el=$("gsum-"+gid); if(el) el.textContent=g?fmt(g.L,2)+"% · "+gwh(g.lost)+" GWh/yr":"0% in year 1";});
+  drawBridge(); drawContrib(); drawOdds(); drawTable(); printSummary();
+  lastProj=LS.toWattOdds(W,state,r);
+  $("woNote").textContent=(state.tech==="solar"&&state.solar.grossMode!=="entered"
+    ?"WattOdds will compute the same gross from DC capacity and irradiation, so its P50 matches "+gwh(r.netNoStore1)+" GWh/yr."
+    :"The project carries a P50 of "+gwh(r.netNoStore1)+" GWh/yr (year 1"+(state.storage.enabled?", before storage":"")+").")
+    +" Resource, measurement and extrapolation start at WattOdds' defaults: set them there.";
+  if(!$("json").hidden) $("json").value=JSON.stringify(lastProj,null,2);
+}
+
+/* ---------- charts ---------- */
+function width(el){return Math.max(300,el.clientWidth||600);}
+function niceStep(range,target){const raw=range/target,m=Math.pow(10,Math.floor(Math.log10(raw))),r=raw/m;return (r<1.5?1:r<3?2:r<7?5:10)*m;}
+function clip(s,n){return s.length>n?s.slice(0,n-1)+"…":s;}
+
+function drawBridge(){
+  const r=last, el=$("bridge"); if(!r) return;
+  const yearN=view.when==="N", steps=yearN?r.stepsN:r.steps1, net=yearN?r.netN:r.net1;
+  let rows=[{kind:"total",name:"Gross",level:r.gross}];
+  if(view.by==="group"){
+    LS.ORDER[state.tech].forEach(([gid,gname])=>{
+      const st=steps.filter(x=>x.group===gid); if(!st.length) return;
+      const before=st[0].before, after=st[st.length-1].after, sd=Math.sqrt(st.reduce((a,x)=>a+(x.before*x.s/100)**2,0));
+      if(Math.abs(before-after)<1e-9&&sd<1e-9) return;
+      rows.push({kind:gid==="storage"?"store":after>before?"gain":"loss",name:gname,before,after,sd,pct:before>0?(1-after/before)*100:0,n:st.filter(x=>!x.excluded&&(x.L!==0||x.s!==0)).length});
+    });
+  } else {
+    steps.forEach(x=>{ if(x.excluded||(Math.abs(x.L)<1e-9&&x.s<1e-9)) return;
+      rows.push({kind:x.storage?"store":x.L<0?"gain":"loss",name:x.name,group:x.groupName,before:x.before,after:x.after,sd:x.before*x.s/100,pct:x.L}); });
+  }
+  rows.push({kind:"total",name:yearN?"Net, "+r.N+"-yr average":"Net at the meter",level:net});
+  $("lgGain").hidden=!rows.some(x=>x.kind==="gain"); $("lgStore").hidden=!rows.some(x=>x.kind==="store");
+  const W_=width(el), narrow=W_<560, labW=narrow?118:190, valW=narrow?92:150, rowH=view.by==="item"?26:32, top=6, axisH=26;
+  const H=top+rows.length*rowH+axisH;
+  const levels=rows.flatMap(x=>x.kind==="total"?[x.level]:[x.before,x.after,x.after-x.sd]);
+  const hi=Math.max(...levels,1e-9), loLevel=Math.max(0,Math.min(...levels));
+  const span=Math.max(hi-loLevel,hi*0.02);
+  // start the axis far enough below the lowest level that the net bar keeps a readable length
+  let step=niceStep(span*1.5,narrow?3:5); let x0v=Math.max(0,Math.floor((loLevel-span*0.4)/step)*step);
+  const x1v=Math.ceil(hi/step)*step;
+  const x0=labW, x1=W_-valW, X=v=>x0+(v-x0v)/(x1v-x0v||1)*(x1-x0);
+  const broken=x0v>0;
+  let g=`<svg viewBox="0 0 ${W_} ${H}" role="img" aria-label="Loss bridge from gross energy to net energy at the meter">`;
+  for(let t=x0v;t<=x1v+1e-9;t+=step){const x=X(t);g+=`<line x1="${x}" y1="${top}" x2="${x}" y2="${H-axisH}" stroke="var(--sunk)"/><text x="${x}" y="${H-8}" text-anchor="middle">${fmt(t,step<1?1:0)}</text>`;}
+  g+=`<text x="0" y="${H-8}">GWh/yr</text>`;
+  const col={loss:"var(--loss)",gain:"var(--gain)",store:"var(--store)"};
+  rows.forEach((row,i)=>{
+    const y=top+i*rowH+4, h=rowH-8, cy=y+h/2+4;
+    const nm=clip(row.name,narrow?15:26);
+    g+=`<text class="lbl${row.kind==="total"?"":" sub"}" x="0" y="${cy}"><title>${esc(row.name)}${row.group?" · "+esc(row.group):""}</title>${esc(nm)}</text>`;
+    if(row.kind==="total"){
+      g+=`<rect x="${x0}" y="${y}" width="${Math.max(1,X(row.level)-x0)}" height="${h}" rx="2" fill="var(--accent)"/>`;
+      g+=`<text class="val" x="${x1+6}" y="${cy}" style="font-weight:600">${gwh(row.level)}</text>`;
+      if(broken) g+=`<path d="M${x0+5} ${y-1} l4 ${h/2+1} l-4 ${h/2+1}" stroke="var(--surface)" stroke-width="3" fill="none"/>`;
+    } else {
+      const a=X(Math.min(row.before,row.after)), b=X(Math.max(row.before,row.after));
+      g+=`<rect x="${a}" y="${y}" width="${Math.max(1.5,b-a)}" height="${h}" rx="2" fill="${col[row.kind]}"/>`;
+      if(i>0){const prev=rows[i-1], lv=prev.kind==="total"?prev.level:prev.after; g+=`<line x1="${X(lv)}" x2="${X(lv)}" y1="${y-8}" y2="${y}" stroke="var(--ink-3)" stroke-dasharray="2 2"/>`;}
+      if(row.sd>0){const xa=X(row.after-row.sd), xb=X(row.after+row.sd); g+=`<line x1="${xa}" x2="${xb}" y1="${y+h/2}" y2="${y+h/2}" stroke="var(--ink)" stroke-width="1.4"/><line x1="${xa}" x2="${xa}" y1="${y+h/2-4}" y2="${y+h/2+4}" stroke="var(--ink)" stroke-width="1.4"/><line x1="${xb}" x2="${xb}" y1="${y+h/2-4}" y2="${y+h/2+4}" stroke="var(--ink)" stroke-width="1.4"/>`;}
+      const dE=row.before-row.after;
+      const txt=(Math.abs(dE)<0.005?"":dE>0?"−":"+")+gwh(Math.abs(dE))+(narrow?"":` · ${row.pct<0?"+":""}${fmt(Math.abs(row.pct),2)}%`);
+      g+=`<text class="val" x="${x1+6}" y="${cy}">${txt}</text>`;
+    }
+  });
+  if(rows.length>1){const last_=rows[rows.length-2]; if(last_.kind!=="total"){const lv=last_.after; const y=top+(rows.length-1)*rowH+4; g+=`<line x1="${X(lv)}" x2="${X(lv)}" y1="${y-8}" y2="${y}" stroke="var(--ink-3)" stroke-dasharray="2 2"/>`;}}
+  g+=`</svg>`;
+  el.innerHTML=g;
+  $("bridgeNote").textContent=(broken?"The axis starts at "+fmt(x0v,step<1?1:0)+" GWh/yr so small losses stay visible. ":"")+"Each loss is taken from what is left after the ones before it."+(yearN&&state.tech==="solar"?" The "+r.N+"-yr average includes module degradation.":"");
+}
+
+function drawContrib(){
+  const r=last, el=$("contrib");
+  const top=r.contrib.slice(0,8), rest=r.contrib.slice(8).reduce((a,x)=>a+x.share,0);
+  const rows=top.map(x=>({name:x.name,share:x.share}));
+  if(rest>0.0005) rows.push({name:`${r.contrib.length-8} others`,share:rest});
+  if(!rows.length){el.innerHTML='<p class="note">No loss carries uncertainty.</p>';return;}
+  const W_=width(el), narrow=W_<420, labW=narrow?120:168, valW=46, rowH=26, H=rows.length*rowH+4;
+  const mx=Math.max(...rows.map(x=>x.share));
+  let g=`<svg viewBox="0 0 ${W_} ${H}" role="img" aria-label="Share of loss variance by item">`;
+  rows.forEach((x,i)=>{
+    const y=i*rowH+4, w=(W_-labW-valW)*x.share/mx;
+    g+=`<text class="lbl sub" x="0" y="${y+13}"><title>${esc(x.name)}</title>${esc(clip(x.name,narrow?16:23))}</text>`;
+    g+=`<rect x="${labW}" y="${y+2}" width="${Math.max(1,w)}" height="${rowH-10}" rx="2" fill="var(--accent)" opacity="${i<3?1:0.55}"/>`;
+    g+=`<text class="val" x="${labW+w+5}" y="${y+13}">${fmt(x.share*100,0)}%</text>`;
+  });
+  el.innerHTML=g+`</svg>`;
+}
+
+function drawOdds(){
+  const r=last;
+  $("odds").innerHTML=`<thead><tr><th>Exceeded</th><th class="n">Year 1</th><th class="n">${r.N}-yr avg</th></tr></thead><tbody>`+
+    LS.PLEVELS.map(p=>`<tr class="${p==="P90"?"p90":""}"><td>${p}${p==="P50"?" (net)":""}</td><td class="n">${gwh(r.pv1[p])}</td><td class="n">${gwh(r.pvN[p])}</td></tr>`).join("")+
+    `<tr><td>σ, losses only</td><td class="n">±${fmt(r.sigma1,2)}%</td><td class="n">±${fmt(r.sigmaN,2)}%</td></tr></tbody>`;
+}
+
+function tableRows(){
+  const r=last, rows=[];
+  r.groups.forEach(g=>{
+    rows.push({grp:true,name:g.name,L:g.L,lost:g.lost,after:g.after});
+    g.steps.forEach(x=>rows.push({name:x.name,set:x.choiceLabel,raw:x.rawL,rawS:x.rawS,L:x.L,s:x.s,iav:x.iav,lost:x.before-x.after,after:x.after,off:x.excluded,store:x.storage,horizon:x.time==="horizon"}));
+  });
+  return rows;
+}
+function drawTable(){
+  const r=last, rows=tableRows();
+  $("table").innerHTML=`<thead><tr><th>Loss</th><th>Set as</th><th class="n">Loss %</th><th class="n">±σ pts</th><th class="n">GWh/yr lost</th><th class="n">GWh/yr left</th></tr></thead><tbody>
+    <tr class="grp"><td colspan="5">Gross</td><td class="n">${gwh(r.gross)}</td></tr>`+
+    rows.map(x=>x.grp
+      ?`<tr class="grp"><td colspan="2">${esc(x.name)}</td><td class="n">${fmt(x.L,2)}</td><td></td><td class="n">${minus(-x.lost)}</td><td class="n">${gwh(x.after)}</td></tr>`
+      :`<tr class="${x.off?"off":""}"><td>${esc(x.name)}${x.store?` <span class="chip">${fmt(state.storage.share,0)}% stored</span>`:""}${x.horizon?` <span class="chip">${fmt(x.raw,2)}%/yr</span>`:""}</td><td>${esc(x.set)}</td><td class="n">${x.off?"–":fmt(x.L,2)}</td><td class="n">${x.off?"–":fmt(x.s,2)}${x.iav>0?` <small>iav ${fmt(x.iav,1)}</small>`:""}</td><td class="n">${x.off?"–":minus(-x.lost)}</td><td class="n">${gwh(x.after)}</td></tr>`).join("")+
+    `<tr class="tot"><td colspan="2">Net at the meter, year 1</td><td class="n">${fmt(r.lossPct1,2)}</td><td class="n">±${fmt(r.sigma1,2)}</td><td class="n">${minus(-(r.gross-r.net1))}</td><td class="n">${gwh(r.net1)}</td></tr>
+    <tr class="tot"><td colspan="2">Net, ${r.N}-year average</td><td class="n">${fmt(r.lossPctN,2)}</td><td class="n">±${fmt(r.sigmaN,2)}</td><td class="n">${minus(-(r.gross-r.netN))}</td><td class="n">${gwh(r.netN)}</td></tr></tbody>`;
+}
+function printSummary(){
+  const s=state, r=last;
+  const plant=s.tech==="wind"?`Wind, ${s.wind.nTurbines} × ${fmt(s.wind.ratedMW,2)} MW (${fmt(r.capacityMW,1)} MW)`
+    :`Solar PV, ${fmt(s.solar.dcMWp,1)} MWp / ${fmt(s.solar.acMW,1)} MWac, ${s.solar.mount==="tracker"?"single-axis tracker":"fixed tilt"}${s.solar.bifacial?", bifacial":""}`;
+  const gross=s.tech==="solar"&&s.solar.grossMode!=="entered"?`${gwh(r.gross)} GWh/yr (GHI ${fmt(s.solar.ghi,0)} kWh/m² × POA/GHI ${fmt(s.solar.poaRatio,3)})`:`${gwh(r.gross)} GWh/yr (entered)`;
+  $("printSummary").innerHTML=`<h2>LossStack · ${esc(s.name||plant)}</h2><table><tbody><tr><td>Plant</td><td>${esc(plant)}</td></tr><tr><td>Gross energy</td><td>${esc(gross)}</td></tr><tr><td>Storage</td><td>${s.storage.enabled?fmt(s.storage.share,0)+"% of energy routed through a battery":"None"}</td></tr><tr><td>Period</td><td>${s.years} years</td></tr><tr><td>Printed</td><td>${new Date().toISOString().slice(0,10)} from lossstack.coderenewables.com · loss items from WattOdds ${esc(W.commit)}</td></tr></tbody></table>`;
+}
+
+/* ---------- export and load ---------- */
+function slug(){const p=lastProj&&lastProj.meta&&lastProj.meta.name||"loss-stack";return p.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+function offer(name,text,type){
+  const url=URL.createObjectURL(new Blob([text],{type}));
+  const a=document.createElement("a"); a.href=url; a.download=name; a.style.display="none";
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
+$("wo").addEventListener("click",()=>{ if(lastProj) offer(slug()+".uncertainty.json",JSON.stringify(lastProj,null,2),"application/json"); });
+$("show").addEventListener("click",()=>{const t=$("json");t.hidden=!t.hidden;$("show").textContent=t.hidden?"Show":"Hide";if(!t.hidden&&lastProj)t.value=JSON.stringify(lastProj,null,2);});
+$("copy").addEventListener("click",()=>{
+  if(!lastProj) return; const txt=JSON.stringify(lastProj,null,2), btn=$("copy");
+  const fallback=()=>{const t=$("json");t.hidden=false;$("show").textContent="Hide";t.value=txt;t.focus();t.select();btn.textContent="Select and copy";};
+  try{navigator.clipboard.writeText(txt).then(()=>{btn.textContent="Copied";setTimeout(()=>btn.textContent="Copy JSON",1600);},fallback);}catch(e){fallback();}
+});
+$("print").addEventListener("click",()=>window.print());
+$("csv").addEventListener("click",()=>{
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"', r=last;
+  const lines=[["Group","Loss","Set as","Loss %","Sigma pts","Year-to-year pts","GWh/yr lost","GWh/yr left"].map(q).join(",")];
+  lines.push([q("Gross"),q(""),q(""),"","","","",r.gross.toFixed(3)].join(","));
+  r.groups.forEach(g=>g.steps.forEach(x=>lines.push([q(g.name),q(x.name),q(x.choiceLabel),x.L.toFixed(4),x.s.toFixed(4),x.iav.toFixed(4),(x.before-x.after).toFixed(4),x.after.toFixed(4)].join(","))));
+  lines.push([q("Net, year 1"),q(""),q(""),r.lossPct1.toFixed(4),r.sigma1.toFixed(4),"",(r.gross-r.net1).toFixed(4),r.net1.toFixed(4)].join(","));
+  lines.push([q(`Net, ${r.N}-year average`),q(""),q(""),r.lossPctN.toFixed(4),r.sigmaN.toFixed(4),"",(r.gross-r.netN).toFixed(4),r.netN.toFixed(4)].join(","));
+  offer(slug()+".csv",lines.join("\n")+"\n","text/csv");
+});
+function applyLoaded(res){
+  const n=$("loadNote");
+  if(res.error){n.className="note err";n.textContent=res.error;return;}
+  state=res.state; syncInputs(); renderRegister(); update();
+  n.className="note ok"; n.textContent=res.note;
+}
+$("file").addEventListener("change",e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{applyLoaded(LS.fromJson(W,String(rd.result),state)); e.target.value="";};
+  rd.onerror=()=>{const n=$("loadNote");n.className="note err";n.textContent="The file could not be read.";e.target.value="";};
+  rd.readAsText(f);
+});
+$("pasteGo").addEventListener("click",()=>applyLoaded(LS.fromJson(W,$("paste").value,state)));
+$("reset").addEventListener("click",()=>{const t=state.tech;state=LS.defaultState(W,t);syncInputs();renderRegister();update();const n=$("loadNote");n.className="note";n.textContent="Every item is back at WattOdds' starting value for a "+(t==="solar"?"solar":"wind")+" plant.";});
+let rt;window.addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(()=>{drawBridge();drawContrib();},120);});
+
+$("woVer").textContent="items synced "+W.synced+" from "+W.commit;
+syncInputs(); renderRegister(); update();
+})();
+</script>
+</body>
+</html>
