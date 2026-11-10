@@ -6,6 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const assert = require('assert');
+const { spawn } = require('child_process');
 const { chromium } = require('playwright');
 const out = path.resolve(process.argv[2] || 'shots');
 fs.mkdirSync(out, { recursive: true });
@@ -19,6 +20,8 @@ async function open(browser, opts) {
   page.on('console', m => { if (m.type() === 'error') page.errors.push(m.text()); });
   // fonts are optional: the page must work without them
   await page.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, body: '' }));
+  // the suite script is optional: without it the page must behave as before (an empty script = suite not there)
+  await page.route(/coderenewables\.com\/suite\//, r => r.fulfill({ status: 200, contentType: 'application/javascript', body: '' }));
   await page.goto(url);
   await page.waitForSelector('#kNet:not(:empty)');
   return page;
@@ -125,6 +128,84 @@ let checks = 0; const ok = (c, m) => { checks++; assert.ok(c, m); };
   await m.evaluate(() => window.scrollTo(0, document.querySelector('#bridge').getBoundingClientRect().top + window.scrollY - 80));
   await m.screenshot({ path: path.join(out, 'phone-dark-bridge.png') });
   ok(m.errors.length === 0, 'no page errors on phone');
+
+  // suite project: needs a home-page checkout (argv[3]). LossStack runs on http://localhost so the hub accepts it,
+  // and the hub's coderenewables.com URLs are answered from that checkout.
+  const homeDir = process.argv[3] && path.resolve(process.argv[3]);
+  if (homeDir && fs.existsSync(path.join(homeDir, 'suite/v1/suite.js'))) {
+    const srv = spawn('python3', ['-m', 'http.server', '8102', '--directory', path.resolve(__dirname, '..')], { stdio: 'ignore' });
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const base = 'http://localhost:8102/index.html';
+      const suiteCtx = async () => {
+        const c = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+        await c.route(/^https:\/\/coderenewables\.com\/suite\/v1\//, route => {
+          const file = path.join(homeDir, new URL(route.request().url()).pathname);
+          const type = file.endsWith('.js') ? 'application/javascript' : 'text/html';
+          route.fulfill({ status: 200, contentType: type, body: fs.readFileSync(file) });
+        });
+        return c;
+      };
+      const suiteOpen = async (c) => {
+        const q = await c.newPage();
+        q.errors = [];
+        q.on('pageerror', e => q.errors.push(e.message));
+        q.on('console', m => { if (m.type() === 'error') q.errors.push(m.text()); });
+        await q.route(/fonts\.(googleapis|gstatic)\.com/, r => r.fulfill({ status: 200, body: '' }));
+        await q.goto(base);
+        await q.waitForSelector('#kNet:not(:empty)');
+        await q.waitForFunction(() => window.CRSuite && CRSuite.mode !== 'pending', null, { timeout: 8000 });
+        return q;
+      };
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const sctx = await suiteCtx();
+      const p = await suiteOpen(sctx);
+
+      // create a wind project from the bar's API: LossStack writes its section after the first settled state
+      await p.evaluate(() => CRSuite.create({ name: 'Test wind', tech: 'wind' }));
+      await sleep(1200);
+      const saved = await p.evaluate(() => CRSuite.current());
+      ok(saved && saved.sections.lossstack, 'LossStack writes its section to the project');
+      ok(Math.abs(saved.sections.lossstack.value.summary.net1GWh - 418.1) < 0.05, 'stored year-1 net is 418.1 GWh');
+      ok(await p.$eval('#projName', e => e.readOnly && e.value === 'Test wind'), 'project name shown read-only');
+      ok(await p.$eval('#woOpen', e => !e.hidden && /project=/.test(e.href)), 'Open in WattOdds links to the project');
+
+      // a change in LossStack is saved to the project, and a reload restores it
+      await p.fill('#windGross', '500');
+      await p.dispatchEvent('#windGross', 'input');
+      await sleep(1200);
+      const changedNet = await text(p, '#kNet');
+      ok(!/418\.1/.test(changedNet), 'a new gross energy changes the net');
+      const withWake = await p.evaluate(() => CRSuite.current());
+      ok(Math.abs(withWake.sections.lossstack.value.summary.net1GWh - parseFloat(changedNet)) < 0.05, 'the project holds the new net');
+      await p.reload();
+      await p.waitForSelector('#kNet:not(:empty)');
+      await p.waitForFunction(() => window.CRSuite && CRSuite.mode !== 'pending' && document.querySelector('#projName').value === 'Test wind', null, { timeout: 8000 });
+      ok(await text(p, '#kNet') === changedNet, 'reload restores the saved result');
+
+      // another page (a WindNudge stand-in) saves results: LossStack offers Apply, Apply sets the gross energy
+      const q = await suiteOpen(sctx);
+      await q.evaluate(() => CRSuite.write('windnudge', {
+        export: { tool: 'WindNudge', base: { gross_aep_mwh: 16000 }, turbine: { rated_kw: 4500 } },
+        inputs: {}, dataset: { name: 'Sample', period: '2019–2021', sample: true }
+      }));
+      await p.waitForFunction(() => /WindNudge has new results/.test((document.querySelector('.crs-notice') || {}).textContent || ''), null, { timeout: 8000 });
+      ok(true, 'LossStack offers the WindNudge update');
+      await p.click('.crs-notice button.crs-btn.primary');
+      await p.waitForFunction(() => /480/.test(document.querySelector('#kGross').textContent), null, { timeout: 8000 });
+      ok(/480/.test(await text(p, '#kGross')), 'Apply sets gross to 16 GWh × 30 turbines');
+      await sleep(1000);
+      const after = await p.evaluate(() => CRSuite.current());
+      ok(after.sections.lossstack.value.appliedFrom.windnudge === after.sections.windnudge.rev, 'appliedFrom records the WindNudge revision');
+
+      ok(p.errors.length === 0, 'no page errors in the suite flow: ' + p.errors.join(' | '));
+      await q.close();
+      await p.close();
+      await sctx.close();
+    } finally {
+      srv.kill();
+    }
+  }
 
   await browser.close();
   console.log(`browser: ${checks} checks passed; screenshots in ${out}`);
