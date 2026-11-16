@@ -234,6 +234,9 @@ footer { margin-top: 28px; font-size: 0.8rem; color: var(--ink-3); }
     <aside class="panel inputs" aria-label="Inputs">
       <section>
         <h2>Plant</h2>
+        <div class="fields">
+          <div class="field full"><label for="projName">Project name</label><div class="inp"><input id="projName" type="text" maxlength="120" placeholder="e.g. Anantapur 150 MW"></div></div>
+        </div>
         <div class="seg" role="radiogroup" aria-label="Technology">
           <label><input type="radio" name="tech" value="wind" id="techWind"><span>Wind</span></label>
           <label><input type="radio" name="tech" value="solar" id="techSolar"><span>Solar PV</span></label>
@@ -354,6 +357,7 @@ footer { margin-top: 28px; font-size: 0.8rem; color: var(--ink-3); }
             <p class="note" style="margin-top:2px">Download a project file, then use Import project file in WattOdds. The loss items keep their values and how they were set.</p>
           </div>
           <div class="btns">
+            <a class="btn primary" id="woOpen" href="https://wattodds.coderenewables.com/app/" hidden>Open in WattOdds</a>
             <button class="btn primary" id="wo" type="button">Download WattOdds project</button>
             <button class="btn" id="copy" type="button">Copy JSON</button>
             <button class="btn" id="show" type="button">Show</button>
@@ -385,6 +389,7 @@ footer { margin-top: 28px; font-size: 0.8rem; color: var(--ink-3); }
   <footer>Part of the <a href="https://coderenewables.com" target="_blank" rel="noopener">CodeRenewables</a> suite, alongside <a href="https://wattodds.coderenewables.com" target="_blank" rel="noopener">WattOdds</a>, <a href="https://windnudge.coderenewables.com" target="_blank" rel="noopener">WindNudge</a> and <a href="https://solarnudge.coderenewables.com" target="_blank" rel="noopener">SolarNudge</a>. <span class="src">Apache-2.0 licensed, source on <a href="https://github.com/coderenewables/loss-stack" target="_blank" rel="noopener">GitHub</a>.</span> Nothing you enter leaves your browser.</footer>
 </div>
 
+<script src="https://coderenewables.com/suite/v1/suite.js" defer onerror=""></script>
 <script src="wattodds-items.js"></script>
 <script src="engine.js"></script>
 <script>
@@ -423,6 +428,7 @@ function syncInputs(){
   $("irrBlock").hidden=state.solar.grossMode==="entered"; $("entBlock").hidden=state.solar.grossMode!=="entered";
   $("storeBlock").hidden=!state.storage.enabled;
   $("whenN").textContent=state.years+"-yr avg";
+  syncName();
 }
 const LIM={"wind.nTurbines":[1,2000],"wind.ratedMW":[0.1,30],"wind.grossGWh":[0,1e6],"solar.dcMWp":[0.01,1e5],"solar.acMW":[0.01,1e5],"solar.ghi":[1,3500],"solar.poaRatio":[0.5,1.6],"solar.grossGWh":[0,1e6],"storage.share":[0,100],"years":[1,40]};
 document.querySelector(".inputs").addEventListener("input",e=>{
@@ -563,6 +569,7 @@ function update(){
     :"The project carries a P50 of "+gwh(r.netNoStore1)+" GWh/yr (year 1"+(state.storage.enabled?", before storage":"")+").")
     +" Resource, measurement and extrapolation start at WattOdds' defaults: set them there.";
   if(!$("json").hidden) $("json").value=JSON.stringify(lastProj,null,2);
+  if(!loading) suiteWrite();
 }
 
 /* ---------- charts ---------- */
@@ -717,8 +724,127 @@ $("pasteGo").addEventListener("click",()=>applyLoaded(LS.fromJson(W,$("paste").v
 $("reset").addEventListener("click",()=>{const t=state.tech;state=LS.defaultState(W,t);syncInputs();renderRegister();update();const n=$("loadNote");n.className="note";n.textContent="Every item is back at WattOdds' starting value for a "+(t==="solar"?"solar":"wind")+" plant.";});
 let rt;window.addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(()=>{drawBridge();drawContrib();},120);});
 
+/* ---------- suite project (optional): the project bar, shared with WindNudge, SolarNudge and WattOdds ---------- */
+const NUDGE_OF={wind:"windnudge",solar:"solarnudge"};
+const NUDGE_LABEL={windnudge:"WindNudge",solarnudge:"SolarNudge"};
+let suite=null;       // the current suite project document, or null
+let applied={};       // upstream section revisions this project was built from
+let ownRev=null;      // lossstack section revision this page last wrote or loaded
+let loading=false;    // true while a project is being loaded: no write back
+let writeTimer=null;
+
+function syncName(){
+  const n=$("projName"); if(!n) return;
+  n.readOnly=!!suite;
+  n.title=suite?"Renaming happens in the project bar":"";
+  if(document.activeElement!==n) n.value=suite?suite.name:(state.name||"");
+}
+function updateChrome(){
+  const link=$("woOpen"), dl=$("wo");
+  if(suite&&window.CRSuite){ link.href=CRSuite.toolUrl("wattodds",suite.id)||"#"; link.hidden=false; dl.className="btn"; }
+  else { link.hidden=true; dl.className="btn primary"; }
+}
+function suiteWrite(){
+  if(!suite||suite.tech==="hybrid") return;
+  clearTimeout(writeTimer);
+  writeTimer=setTimeout(doWrite,600);
+}
+function doWrite(){
+  writeTimer=null;
+  if(!suite||suite.tech==="hybrid"||!last) return;
+  const r=last;
+  const value={
+    state:state,
+    summary:{grossGWh:r.gross,net1GWh:r.net1,netNoStore1GWh:r.netNoStore1,netNGWh:r.netN,lossPct1:r.lossPct1,sigma1:r.sigma1,sigmaN:r.sigmaN,years:state.years,capacityMW:r.capacityMW},
+    wattoddsProject:lastProj,
+    appliedFrom:applied
+  };
+  CRSuite.write("lossstack",value).then(res=>{ ownRev=res.sectionRev; },()=>CRSuite.notice("This change could not be saved to the project."));
+}
+function offerNudge(nk){
+  CRSuite.notice(NUDGE_LABEL[nk]+" has new results for this project.",{action:"Apply",onAction:()=>applyNudge(nk)});
+}
+function checkUpstream(p){
+  const nk=NUDGE_OF[p.tech]; if(!nk||!p.sections) return;
+  const nu=p.sections[nk];
+  if(nu&&nu.rev>(applied[nk]||0)) offerNudge(nk);
+}
+function applyNudge(nk){
+  const id=suite&&suite.id; if(!id) return;
+  CRSuite.current().then(p=>{
+    if(!p||p.id!==id) return;
+    const nu=p.sections&&p.sections[nk];
+    if(!nu||!nu.value||!nu.value.export) return;
+    const res=LS.fromJson(W,nu.value.export,state);
+    if(res.error){ CRSuite.notice(res.error); return; }
+    state=res.state; state.name=p.name; applied[nk]=nu.rev; suite=p;
+    syncInputs(); renderRegister(); update();
+  }).catch(()=>CRSuite.notice("Could not read the project. Try again."));
+}
+function adopt(p){
+  clearTimeout(writeTimer); writeTimer=null;   // an edit still waiting belongs to the old project
+  loading=true;
+  try{
+    if(!p){
+      suite=null; applied={}; ownRev=null;
+      state=load();
+    } else if(p.tech==="hybrid"){
+      suite=p; applied={}; ownRev=null;
+      state=load();
+      CRSuite.notice("Hybrid projects are built in WattOdds.");
+    } else {
+      suite=p;
+      const sec=p.sections&&p.sections.lossstack;
+      if(sec&&sec.value&&sec.value.state){
+        state=LS.sanitize(W,sec.value.state);
+        applied=Object.assign({},sec.value.appliedFrom||{});
+        ownRev=sec.rev;
+      } else {
+        state=LS.defaultState(W,p.tech);
+        applied={}; ownRev=null;
+        const nk=NUDGE_OF[p.tech], nu=nk&&p.sections&&p.sections[nk];
+        if(nu&&nu.value&&nu.value.export){
+          const res=LS.fromJson(W,nu.value.export,state);
+          if(!res.error){ state=res.state; applied[nk]=nu.rev; }
+        }
+      }
+      state.name=p.name;
+    }
+    syncInputs(); renderRegister(); update();
+  } finally { loading=false; }
+  syncName(); updateChrome();
+  if(p&&p.tech!=="hybrid"){
+    if(!(p.sections&&p.sections.lossstack)) suiteWrite();
+    checkUpstream(p);
+  }
+}
+function onSuiteChange(e){
+  const p=e.project;
+  if(!p){ if(suite) adopt(null); return; }
+  if(!suite||p.id!==suite.id){ adopt(p); return; }
+  // renames happen in the project bar: keep the name here in step, without writing back
+  suite=p; state.name=p.name; syncName(); updateChrome();
+  if(lastProj&&lastProj.meta) lastProj.meta.name=p.name;
+  if(e.own) return;
+  // another page changed this project
+  const sec=p.sections&&p.sections.lossstack;
+  if(sec&&sec.rev!==ownRev&&p.tech!=="hybrid")
+    CRSuite.notice("This project changed in another window.",{action:"Load",onAction:()=>adopt(p)});
+  if(p.tech!=="hybrid") checkUpstream(p);
+}
+$("projName").addEventListener("input",e=>{ if(suite) return; state.name=e.target.value.slice(0,120); update(); });
+function startSuite(){
+  if(!window.CRSuite) return;
+  try{
+    CRSuite.mountBar({tool:"lossstack",after:document.querySelector(".top")});
+    CRSuite.onChange(onSuiteChange);
+    CRSuite.ready.then(()=>CRSuite.current()).then(p=>adopt(p||null)).catch(()=>{});
+  }catch(err){ /* the page works without the suite */ }
+}
+if(document.readyState==="complete") startSuite(); else window.addEventListener("load",startSuite);
+
 $("woVer").textContent="items synced "+W.synced+" from "+W.commit;
-syncInputs(); renderRegister(); update();
+syncInputs(); renderRegister(); update(); updateChrome();
 })();
 </script>
 </body>

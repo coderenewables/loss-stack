@@ -56,10 +56,20 @@ The sync stops with a message if WattOdds adds an option LossStack can't evaluat
 ```sh
 node tests/engine.test.js                          # arithmetic, storage, degradation, bad input, suite files
 node tests/parity.test.js ../renewables-uncertainty # exports projects and evaluates them with WattOdds' own engine
-npm i playwright && node tests/browser.js shots    # page in Chromium: controls, bad input, phone width, print
+npm i playwright && node tests/browser.js shots ../home-page   # Chromium: controls, bad input, phone, print, suite project
 ```
 
 The parity test checks that year-1, 10-year and 25-year P50 and loss σ agree with WattOdds to 1e-9, for wind and solar, edited items, bifacial gain, every clipping band and storage.
+
+## Suite project
+
+LossStack can work on the same project as WindNudge, SolarNudge and WattOdds, with no files in between. The project bar (loaded from `https://coderenewables.com/suite/v1/suite.js`) lists the projects in this browser and links each tool. The page works the same without it.
+
+- **Reads:** the project's `windnudge` or `solarnudge` section, when it has one, to set gross energy and rated power (WindNudge's gross AEP × turbines; SolarNudge's DC/AC capacity, irradiation and clipping). When the upstream tool saves new results, LossStack offers **Apply** and never applies them silently.
+- **Writes:** its own `lossstack` section: the settings, the summary (year-1 and N-year net, losses and σ), the WattOdds project, and the upstream revisions it was built from. It writes only after you change something, 600 ms after the last change.
+- **Open in WattOdds** opens the same project in WattOdds. The download stays available.
+
+Without a project, LossStack saves its settings in this browser as before. The suite's storage is described in the home page repository, `suite/v1/README.md`.
 
 ## Run locally
 
